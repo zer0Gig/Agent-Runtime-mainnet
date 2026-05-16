@@ -68,10 +68,15 @@ function buildCapabilityManifest(skills, llmProvider = "groq", model = "llama-3.
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const RPC_URL      = process.env.OG_NEWTON_RPC      || "https://evmrpc-testnet.0g.ai";
+  const RPC_URL      = process.env.OG_RPC_URL || process.env.OG_NEWTON_RPC || "https://evmrpc.0g.ai";
   const AGENT_KEY    = process.env.AGENT_PRIVATE_KEY;
   const ECIES_PUBKEY = process.env.AGENT_ECIES_PUBLIC_KEY;
-  const REGISTRY     = process.env.AGENT_REGISTRY_ADDRESS || "0x4c49D008E72eF1E098Bcd6E75857Ed17377dB4ab";
+  // ⚠️ Mainnet: AGENT_REGISTRY_ADDRESS env var REQUIRED — no safe default.
+  const REGISTRY     = process.env.AGENT_REGISTRY_ADDRESS;
+  if (!REGISTRY) {
+    console.error("AGENT_REGISTRY_ADDRESS missing — deploy the mainnet AgentRegistry first and set the env var.");
+    process.exit(1);
+  }
 
   if (!AGENT_KEY) { console.error("AGENT_PRIVATE_KEY not set in .env"); process.exit(1); }
 

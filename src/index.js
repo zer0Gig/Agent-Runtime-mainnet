@@ -1,3 +1,15 @@
+// BigInt serialization polyfill — MUST be first. The @0gfoundation/0g-compute-ts-sdk
+// (transitively via ethers v6) calls JSON.stringify on receipt/error objects that
+// contain BigInt fields, which throws "Do not know how to serialize a BigInt" and
+// blocks ledger.transferFund. Patching toJSON globally is JSON.stringify's documented
+// backdoor for unsupported types. Must run before any SDK import.
+if (!('toJSON' in BigInt.prototype)) {
+  Object.defineProperty(BigInt.prototype, 'toJSON', {
+    value: function () { return this.toString(); },
+    writable: false, configurable: false, enumerable: false,
+  });
+}
+
 /**
  * zer0Gig — Agent Runtime
  *
@@ -50,7 +62,7 @@ async function main() {
   }
 
   // ── Setup provider & wallet ──────────────────────────────────
-  const rpcUrl = process.env.OG_NEWTON_RPC || "https://evmrpc-testnet.0g.ai";
+  const rpcUrl = process.env.OG_RPC_URL || process.env.OG_NEWTON_RPC || "https://evmrpc.0g.ai";
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   // Platform wallet — used for reading chain state and platform-level operations.
   // Agent-specific signing uses dynamically loaded wallet keys from Supabase (ECIES).

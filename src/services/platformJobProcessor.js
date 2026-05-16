@@ -12,6 +12,7 @@ import { executeForJob, updateAgentSkillConfig } from "./toolExecutor.js";
 import { sendMilestoneCard, sendNotification, sendJobCompletionAlert, CustomerServiceBot } from "./telegramConnector.js";
 import { SelfEvaluator } from "./selfEvaluator.js";
 import { MemoryService } from "./memoryService.js";
+import { validateApproval } from "./approvalValidator.js";
 import { ethers } from "ethers";
 
 const ACTIVITY_BASE = process.env.ACTIVITY_LOG_URL?.replace("/api/agent-activity", "") || "http://localhost:3000";
@@ -162,6 +163,10 @@ export async function runFeedbackLoop(
   }
 
   console.log(`[PlatformProcessor] Milestone ${milestoneIndex + 1} card posted — waiting for user action.`);
+  console.log(`[PlatformProcessor] Config: ACTIVITY_BASE=${ACTIVITY_BASE} | GROQ_API_KEY=${process.env.GROQ_API_KEY ? "set" : "MISSING (keyword fallback only)"} | AGENT_RUNTIME_TOKEN=${process.env.AGENT_RUNTIME_TOKEN ? "set" : "MISSING"}`);
+  if (ACTIVITY_BASE.includes("localhost")) {
+    console.warn(`[PlatformProcessor] ⚠️ ACTIVITY_BASE points to localhost — milestone approvals from production frontend will be IGNORED. Set ACTIVITY_LOG_URL env var to your Vercel domain.`);
+  }
 
   const approvalUrl = `${ACTIVITY_BASE}/api/milestone-approval?jobId=${jobId}&milestoneIndex=${milestoneIndex}`;
 
@@ -197,83 +202,45 @@ export async function runFeedbackLoop(
       lastReminder = Date.now(); // reset reminder timer when user is active
       const chatText = userMessages.map(m => m.message).join("\n");
       collectedFeedback.push(chatText); // accumulate for memory
-      console.log(`[PlatformProcessor] ${userMessages.length} user message(s) — interpreting...`);
+      console.log(`[PlatformProcessor] ${userMessages.length} user message(s) — validating approval...`);
 
-      let intent = "UNKNOWN";
-      let llmFailed = false;
-      try {
-        const result = await extendedCompute.processTask(
-          `You are an AI freelance agent. You completed a milestone and the client has responded.
+      // ── Groq-backed approval validation (cross-check to prevent false approvals)
+      const approvalResult = await validateApproval(chatText, outputSummary, milestoneIndex, 1);
+      console.log(`[PlatformProcessor] Approval validator: approved=${approvalResult.approved}, confidence=${approvalResult.confidence}, reason=${approvalResult.reason}`);
 
-Your milestone ${milestoneIndex + 1} summary:
-${outputSummary}
-
-Client's message:
-${chatText}
-
-Classify the client's intent with EXACTLY one of:
-- "APPROVED" — client is satisfied, happy, wants to proceed
-- "REVISION: <specific change>" — client wants something changed or fixed
-
-Reply with only "APPROVED" or "REVISION: ..." — nothing else.`,
-          "", ""
-        );
-        const raw = result.content.trim();
-        if (raw.toUpperCase().startsWith("APPROVED")) intent = "APPROVED";
-        else if (raw.toUpperCase().startsWith("REVISION")) intent = raw;
-      } catch {
-        llmFailed = true;
-      }
-
-      // Fallback: keyword-based intent classification when LLM is unavailable
-      if (llmFailed && intent === "UNKNOWN") {
-        const lower = chatText.toLowerCase();
-        const approvalWords = ["approve", "approved", "good", "great", "perfect", "nice", "ok", "okay", "yes", "proceed", "continue", "next", "satisfied", "happy", "looks good", "well done", "thanks", "thank", "go ahead", "release", "button", "click"];
-        const isApproval = approvalWords.some(w => lower.includes(w));
-
-        if (isApproval) {
-          intent = "APPROVED";
-        } else {
-          // Treat anything else as a revision request
-          intent = `REVISION: ${chatText.trim()}`;
-        }
-        console.log(`[PlatformProcessor] LLM unavailable — keyword fallback intent: ${intent}`);
-      }
-
-      console.log(`[PlatformProcessor] Intent: ${intent}`);
-
-      if (intent === "APPROVED") {
-        // Re-post the card in case the user missed it, and confirm
+      if (approvalResult.approved && approvalResult.confidence >= 0.7) {
+        // Confirmed approval — return immediately to proceed with on-chain release
+        console.log(`[PlatformProcessor] Approval confirmed — proceeding to release milestone ${milestoneIndex + 1}`);
         await postChat(
           jobId,
-          `Great! I'm glad the work meets your expectations. Click the button below to release payment for milestone ${milestoneIndex + 1} and proceed to the next step.`,
-          "milestone_ready",
-          { milestoneIndex }
+          `✅ Approval confirmed! Releasing payment for milestone ${milestoneIndex + 1} and continuing to the next step...`,
+          "text"
         );
-      } else {
-        // REVISION requested
-        revisions++;
-        const details = intent.replace(/^REVISION:\s*/i, "");
-        console.log(`[PlatformProcessor] Revision ${revisions}/${MAX_REVISIONS}: ${details}`);
-
-        await postChat(
-          jobId,
-          `Understood — I'll revise: "${details}". This is revision ${revisions}/${MAX_REVISIONS}.`
-        );
-
-        // Return revision details so processMilestone can re-execute the milestone
-        if (revisions <= MAX_REVISIONS) {
-          return { userFeedback: details, path: "revision", revisionDetails: details, revisionCount: revisions };
-        }
-
-        // Max revisions reached — post card and wait for approval
-        await postChat(
-          jobId,
-          `I've done my best with ${revisions} revision(s). If you'd like further changes after approving, you can open a new job. Please click the button to proceed when ready.`,
-          "milestone_ready",
-          { milestoneIndex }
-        );
+        return { userFeedback: collectedFeedback.join("\n") };
       }
+
+      // Not approved — treat as revision request
+      const revisionDetails = approvalResult.reason || chatText.trim();
+      revisions++;
+      console.log(`[PlatformProcessor] Not approved — revision ${revisions}/${MAX_REVISIONS}: ${revisionDetails}`);
+
+      await postChat(
+        jobId,
+        `Understood — I'll work on: "${revisionDetails}". This is revision ${revisions}/${MAX_REVISIONS}.`
+      );
+
+      // Return revision details so processMilestone can re-execute the milestone
+      if (revisions <= MAX_REVISIONS) {
+        return { userFeedback: revisionDetails, path: "revision", revisionDetails, revisionCount: revisions };
+      }
+
+      // Max revisions reached — post card and wait for approval
+      await postChat(
+        jobId,
+        `I've done my best with ${revisions} revision(s). If you'd like further changes after approving, you can open a new job. Please click the button to proceed when ready.`,
+        "milestone_ready",
+        { milestoneIndex }
+      );
 
       continue; // restart poll loop
     }

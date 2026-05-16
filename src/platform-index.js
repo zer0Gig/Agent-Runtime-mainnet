@@ -1,9 +1,17 @@
+// BigInt serialization polyfill — MUST be first. See src/index.js for rationale.
+if (!('toJSON' in BigInt.prototype)) {
+  Object.defineProperty(BigInt.prototype, 'toJSON', {
+    value: function () { return this.toString(); },
+    writable: false, configurable: false, enumerable: false,
+  });
+}
+
 /**
  * Platform Dispatcher Entry Point (Path B)
- * 
+ *
  * Runs the Platform Dispatcher which manages jobs for multiple registered agents.
  * This is an alternative to `index.js` (Path A - Self-Hosted).
- * 
+ *
  * Usage:
  *   npm run start:platform
  */
@@ -84,7 +92,7 @@ async function main() {
   }
 
   // ── Setup provider & wallet ──────────────────────────────────
-  const rpcUrl = process.env.OG_NEWTON_RPC || "https://evmrpc-testnet.0g.ai";
+  const rpcUrl = process.env.OG_RPC_URL || process.env.OG_NEWTON_RPC || "https://evmrpc.0g.ai";
   const provider = new ethers.JsonRpcProvider(rpcUrl);
 
   // Validate private key format before creating wallet

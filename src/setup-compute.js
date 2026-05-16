@@ -47,7 +47,7 @@ async function main() {
     process.exit(1);
   }
 
-  const rpc = process.env.OG_NEWTON_RPC || "https://evmrpc-testnet.0g.ai";
+  const rpc = process.env.OG_RPC_URL || process.env.OG_NEWTON_RPC || "https://evmrpc.0g.ai";
   const provider = new ethers.JsonRpcProvider(rpc);
   const pk = process.env.AGENT_PRIVATE_KEY.startsWith("0x")
     ? process.env.AGENT_PRIVATE_KEY

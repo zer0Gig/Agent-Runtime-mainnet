@@ -14,7 +14,7 @@ import 'dotenv/config';
 import { ethers } from 'ethers';
 
 // Config
-const RPC_URL = process.env.OG_NEWTON_RPC || 'https://evmrpc-testnet.0g.ai';
+const RPC_URL = process.env.OG_RPC_URL || process.env.OG_NEWTON_RPC || 'https://evmrpc.0g.ai';
 const ESCROW_ADDRESS = process.env.PROGRESSIVE_ESCROW_ADDRESS;
 const AGENT_REGISTRY_ADDRESS = process.env.AGENT_REGISTRY_ADDRESS;
 const PLATFORM_KEY = process.env.PLATFORM_PRIVATE_KEY;

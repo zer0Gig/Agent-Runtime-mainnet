@@ -9,7 +9,7 @@ import 'dotenv/config';
 import { ethers } from 'ethers';
 
 // Config
-const RPC_URL = process.env.OG_NEWTON_RPC || 'https://evmrpc-testnet.0g.ai';
+const RPC_URL = process.env.OG_RPC_URL || process.env.OG_NEWTON_RPC || 'https://evmrpc.0g.ai';
 const ESCROW_ADDRESS = process.env.PROGRESSIVE_ESCROW_ADDRESS;
 const AGENT_PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY; // Agent wallet key
 const ALIGNMENT_VERIFIER_KEY = process.env.ALIGNMENT_VERIFIER_KEY; // For signing

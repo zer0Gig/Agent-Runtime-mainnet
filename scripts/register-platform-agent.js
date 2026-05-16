@@ -19,7 +19,7 @@ async function main() {
   console.log("║  zer0Gig — Register Platform-Managed Agent       ║");
   console.log("╚══════════════════════════════════════════════════╝\n");
 
-  const rpcUrl = process.env.OG_NEWTON_RPC || "https://evmrpc-testnet.0g.ai";
+  const rpcUrl = process.env.OG_RPC_URL || process.env.OG_NEWTON_RPC || "https://evmrpc.0g.ai";
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   const wallet = new ethers.Wallet(process.env.PLATFORM_PRIVATE_KEY, provider);
 

@@ -22,8 +22,19 @@ export const LLM_PROVIDERS = {
   ANTHROPIC: "anthropic",       // Anthropic API (Claude)
   OPEN_AI: "openai",            // OpenAI API (GPT)
   GROQ: "groq",                 // Groq API (Llama)
-  ZERO_G: "0g-compute"          // 0G Compute Network (Decentralized)
+  ZERO_G: "0g-compute",         // 0G Compute Network — direct per-provider (decentralized, wallet-signed)
+  OG_ROUTER: "0g-router",       // 0G Router Mode (pc.0g.ai) — unified app-sk auth, routes to 0GM-1.0 + DeepSeek V4 Pro etc.
 };
+
+// 0G Router Mode default models (mainnet, as of May 2026):
+//   - "0GM-1.0-35B-A3B"        — 0G-native, agentic coding, cheapest
+//   - "deepseek-v4-pro"         — strongest general reasoning
+//   - "GLM-5-FP8"               — #1 open-source
+//   - "deepseek-chat-v3-0324"   — fast conversational
+//   - "gpt-oss-120b" / "gpt-oss-20b" — open-source GPT family
+//   - "qwen2.5-vl-72b-instruct" — multimodal vision-language
+export const OG_ROUTER_BASE_URL = "https://router-api.0g.ai/v1";
+export const OG_ROUTER_DEFAULT_MODEL = "0GM-1.0-35B-A3B";
 
 // ─── CLASS ─────────────────────────────────────────────────────────────────
 
@@ -143,6 +154,8 @@ export class ExtendedComputeService extends ComputeService {
           return await this._callOpenAI(messages);
         case LLM_PROVIDERS.GROQ:
           return await this._callGroq(messages);
+        case LLM_PROVIDERS.OG_ROUTER:
+          return await this._callOGRouter(messages);
         case LLM_PROVIDERS.ZERO_G:
         default:
           return await this.chatCompletion(messages);
@@ -170,6 +183,40 @@ export class ExtendedComputeService extends ComputeService {
         throw fallbackError;
       }
     }
+  }
+
+  /**
+   * Calls 0G Router Mode (pc.0g.ai) — single unified API key, auto-routes to
+   * 0GM-1.0-35B-A3B for agentic work or deepseek-v4-pro for general reasoning.
+   *
+   * Env vars:
+   *   OG_ROUTER_API_KEY  — app-sk-XXX key from https://pc.0g.ai/sdk/dashboard
+   *   OG_ROUTER_MODEL    — override model (default: "0GM-1.0-35B-A3B")
+   */
+  async _callOGRouter(messages) {
+    const apiKey = process.env.OG_ROUTER_API_KEY || this.config.apiKey;
+    if (!apiKey) throw new Error("OG_ROUTER_API_KEY missing — get from https://pc.0g.ai/sdk/dashboard");
+
+    const model = this.config.model || process.env.OG_ROUTER_MODEL || OG_ROUTER_DEFAULT_MODEL;
+    console.log(`[ExtendedCompute:0G-Router] model=${model}`);
+
+    const client = new OpenAI({
+      baseURL: OG_ROUTER_BASE_URL,
+      apiKey,
+    });
+
+    const completion = await client.chat.completions.create({
+      model,
+      messages,
+      max_tokens: 2048,
+      temperature: 0.7,
+    });
+
+    return {
+      content: completion.choices[0]?.message?.content || "",
+      model,
+      provider: LLM_PROVIDERS.OG_ROUTER,
+    };
   }
 
   /**

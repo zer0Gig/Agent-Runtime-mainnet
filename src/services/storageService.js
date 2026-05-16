@@ -20,11 +20,15 @@ function bigintReplacer(_key, value) {
   return typeof value === "bigint" ? value.toString() : value;
 }
 
+// Defaults point to 0G Aristotle Mainnet (chain 16661). Override via env to
+// run against Galileo testnet (chain 16602) or any other 0G network.
 const INDEXER_RPC =
   process.env.OG_INDEXER_RPC ||
-  "https://indexer-storage-testnet-turbo.0g.ai";
+  "https://indexer-storage-turbo.0g.ai";
 const EVM_RPC =
-  process.env.OG_NEWTON_RPC || "https://evmrpc-testnet.0g.ai";
+  process.env.OG_RPC_URL ||
+  process.env.OG_NEWTON_RPC ||
+  "https://evmrpc.0g.ai";
 
 // 0G KV Node endpoint — provides cross-restart persistent KV layer (Option B).
 // If unreachable, existing in-memory Map fallback continues to work.
