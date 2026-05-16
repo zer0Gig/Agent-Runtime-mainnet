@@ -19,8 +19,8 @@
     "build": "npm run lint && npm run test"
   },
   "dependencies": {
+    "@0gfoundation/0g-compute-ts-sdk": "^0.8.1",
     "@0gfoundation/0g-ts-sdk": "^1.0.1",
-    "@0glabs/0g-serving-broker": "^0.7.4",
     "@anthropic-ai/sdk": "^0.18.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "axios": "^1.14.2",

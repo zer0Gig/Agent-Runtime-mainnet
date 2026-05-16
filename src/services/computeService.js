@@ -5,7 +5,7 @@
  * via an OpenAI-compatible API running on decentralized GPUs.
  */
 
-import { createZGComputeNetworkBroker } from "@0glabs/0g-serving-broker";
+import { createZGComputeNetworkBroker } from "@0gfoundation/0g-compute-ts-sdk";
 import OpenAI from "openai";
 
 // Testnet providers
@@ -109,10 +109,7 @@ export class ComputeService {
       userContent
     );
 
-    // Call OpenAI-compatible endpoint. We need both the parsed body AND the
-    // raw response — `processResponse` requires the `ZG-Res-Key` header value
-    // (per 0G team confirmation, May 2026), NOT the OpenAI `chatcmpl-...` id.
-    // Using completion.id silently fails with `chat_id_not_found` on Galileo.
+    // Call OpenAI-compatible endpoint
     const openai = new OpenAI({ baseURL: endpoint, apiKey: "" });
     const { data: completion, response } = await openai.chat.completions
       .create(
@@ -128,8 +125,7 @@ export class ComputeService {
 
     const content = completion.choices[0]?.message?.content || "";
 
-    // Pull the verification key. Header names are case-insensitive in HTTP/1.1
-    // but Node fetch normalizes to lowercase; check both for safety.
+    // Pull the verification key — always use ZG-Res-Key header (not chatcmpl-...)
     const zgResKey =
       response.headers.get("zg-res-key") ||
       response.headers.get("ZG-Res-Key") ||
@@ -140,8 +136,7 @@ export class ComputeService {
       try {
         const isValid = await this.broker.inference.processResponse(
           providerAddress,
-          zgResKey,
-          content
+          zgResKey
         );
         console.log(`[Compute] Response verified via ZG-Res-Key: ${isValid}`);
       } catch (err) {
