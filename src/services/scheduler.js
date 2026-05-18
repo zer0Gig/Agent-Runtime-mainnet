@@ -131,7 +131,15 @@ class AgentScheduler {
   }
 
   /**
-   * Persist scheduler state to 0G Storage
+   * Persist scheduler state to 0G Storage.
+   *
+   * Skips upload when:
+   *   1. No jobs in the scheduler (empty state = wasted gas on mainnet)
+   *   2. Schedule hash matches the last successfully persisted hash (no change)
+   *
+   * Each Flow.submit() call costs ~0.001-0.002 OG in gas on mainnet, so
+   * persisting empty/unchanged state every 5 min would drain the operator
+   * wallet by ~1 OG per day for nothing.
    */
   async persistSchedule() {
     if (!this.storage) return;
@@ -146,13 +154,21 @@ class AgentScheduler {
         });
       }
 
+      // Skip empty state — nothing to persist, just burns gas on the Flow contract
+      if (schedule.length === 0) return;
+
+      // Skip unchanged state — compare against last persisted snapshot hash
+      const snapshotHash = JSON.stringify(schedule);
+      if (snapshotHash === this._lastSnapshotHash) return;
+
       const rootHash = await this.storage.uploadData(
         schedule,
         `scheduler-state-${Date.now()}.json`
       );
 
       await this.storage.setKey("scheduler:latest", rootHash);
-      console.log(`[Scheduler] Schedule persisted to 0G: ${rootHash?.slice(0, 12)}...`);
+      this._lastSnapshotHash = snapshotHash;
+      console.log(`[Scheduler] Schedule persisted to 0G: ${rootHash?.slice(0, 12)}... (${schedule.length} job(s))`);
     } catch (err) {
       console.warn(`[Scheduler] Failed to persist schedule: ${err.message}`);
     }
