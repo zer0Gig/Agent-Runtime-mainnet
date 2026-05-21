@@ -14,20 +14,42 @@
  *   node src/setup-compute.js               # uses qwen-2.5-7b
  *   node src/setup-compute.js gpt-oss-20b   # picks a different provider
  */
-import { createZGComputeNetworkBroker } from "@0glabs/0g-serving-broker";
+// BigInt serialization polyfill — must run BEFORE SDK import (see src/index.js)
+if (!('toJSON' in BigInt.prototype)) {
+  Object.defineProperty(BigInt.prototype, 'toJSON', {
+    value: function () { return this.toString(); },
+    writable: false, configurable: false, enumerable: false,
+  });
+}
+
+import { createZGComputeNetworkBroker } from "@0gfoundation/0g-compute-ts-sdk";
 import { ethers } from "ethers";
 import dotenv from "dotenv";
 dotenv.config();
 
-const PROVIDERS = {
+// 0G Aristotle Mainnet (chain 16661) — Foundation-owned providers
+// Source: Docs/0G-REFERENCES/0G-compute-infrerences.md (May 2026 catalog)
+const MAINNET_PROVIDERS = {
+  "deepseek-v3.1":         "0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C",  // 0.49/M in, 0.15/M out — recommended default
+  "deepseek-chat-v3-0324": "0x1B3AAef3ae5050EEE04ea38cD4B087472BD85EB0",  // 0.30/M in, 1.00/M out — fast conversational
+  "gpt-oss-120b":          "0xBB3f5b0b5062CB5B3245222C5917afD1f6e13aF6",  // 0.10/M in, 0.49/M out — large open-source
+  "gpt-oss-20b":           "0x44ba5021daDa2eDc84b4f5FC170b85F7bC51ef64",  // 0.05/M in, 0.11/M out — CHEAPEST
+  "qwen3-vl-30b":          "0x4415ef5CBb415347bb18493af7cE01f225Fc0868",  // 0.49/M in, 0.49/M out — multimodal
+};
+
+// Galileo testnet (chain 16602) — kept for cross-network testing
+const TESTNET_PROVIDERS = {
   "qwen-2.5-7b": "0xa48f01287233509FD694a22Bf840225062E67836",
-  "gpt-oss-20b": "0x8e60d466FD16798Bec4868aa4CE38586D5590049",
+  "gpt-oss-20b-testnet": "0x8e60d466FD16798Bec4868aa4CE38586D5590049",
   "gemma-3-27b": "0x69Eb5a0BD7d0f4bF39eD5CE9Bd3376c61863aE08",
 };
 
+const PROVIDERS = { ...MAINNET_PROVIDERS, ...TESTNET_PROVIDERS };
+
 const ledgerDeposit   = Number(process.env.OG_COMPUTE_LEDGER_DEPOSIT) || 3;
 const providerDeposit = Number(process.env.OG_COMPUTE_PROVIDER_DEPOSIT) || 1;
-const providerKey     = process.argv[2] || "qwen-2.5-7b";
+// Default: deepseek-v3.1 (most reliable Foundation-owned provider on mainnet)
+const providerKey     = process.argv[2] || "deepseek-v3.1";
 const providerAddr    = PROVIDERS[providerKey];
 
 const fmt = (w) => ethers.formatEther(w) + " OG";
@@ -64,8 +86,9 @@ async function main() {
   console.log(`     Required: ${required} OG (ledger ${ledgerDeposit} + provider ${providerDeposit} + gas 0.1)`);
 
   if (balanceOG < required) {
-    console.error(`\n  ✗ Insufficient balance. Need ${required - balanceOG} OG more.`);
-    console.error(`     Faucet: https://faucet.0g.ai (request to ${wallet.address})`);
+    console.error(`\n  ✗ Insufficient balance. Need ${(required - balanceOG).toFixed(4)} OG more.`);
+    console.error(`     Mainnet has NO public faucet — buy 0G on a CEX (Binance/KuCoin) and`);
+    console.error(`     withdraw to ${wallet.address} on the 0G Aristotle network.`);
     process.exit(1);
   }
   console.log("     ✓ sufficient balance\n");
