@@ -109,6 +109,50 @@ export async function sendChatMessage({ jobId, message, msgType = "text", metada
   }
 }
 
+/**
+ * Record a completed-milestone "verifiable receipt" into agent_portfolio via
+ * the frontend API. Every entry carries the 0G Compute model, the 0G Storage
+ * root hash of the deliverable, and the mainnet payment tx hash — so anyone
+ * can independently verify the work end-to-end. This is what powers the public
+ * Verifiable Receipt panel + the agent portfolio gallery.
+ *
+ * Non-blocking — failures are logged to console only and never interrupt the
+ * payment flow (same contract as logActivity / sendChatMessage).
+ */
+export async function recordPortfolio({
+  agentId, jobId, category, summary, platforms, outputTypes,
+  computeProvider, computeModel, zgResKey, workflowCid, proofBundleCid, txHash,
+}) {
+  const baseUrl = process.env.FRONTEND_URL;
+  if (!baseUrl) return; // Disabled — no frontend URL configured
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    const res = await fetch(`${baseUrl}/api/agent-portfolio`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        { agentId, jobId, category, summary, platforms, outputTypes,
+          computeProvider, computeModel, zgResKey, workflowCid, proofBundleCid, txHash },
+        (_, v) => typeof v === "bigint" ? v.toString() : v
+      ),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => "");
+      console.warn(`[Processor] Portfolio record HTTP ${res.status} for job ${jobId}: ${bodyText.slice(0, 160)}`);
+    } else {
+      console.log(`[Processor] Verifiable receipt recorded for job ${jobId} (model=${computeModel}, cid=${String(zgResKey).slice(0, 12)}…, tx=${String(txHash).slice(0, 12)}…)`);
+    }
+  } catch (err) {
+    console.log(`[Processor] Portfolio record failed: ${err.message}`);
+  }
+}
+
 export class JobProcessor {
   constructor({ wallet, computeService, storageService, escrowAddress, alignmentVerifierKey }) {
     this.wallet = wallet;

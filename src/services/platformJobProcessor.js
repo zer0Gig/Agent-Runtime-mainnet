@@ -6,7 +6,8 @@
  * Uses ExtendedComputeService for multi-provider LLM routing.
  */
 
-import { JobProcessor, logActivity, sendChatMessage } from "./jobProcessor.js";
+import { JobProcessor, logActivity, sendChatMessage, recordPortfolio } from "./jobProcessor.js";
+import { requestAlignmentAttestation } from "./alignmentNodeStub.js";
 import { ExtendedComputeService } from "./extendedComputeService.js";
 import { executeForJob, updateAgentSkillConfig } from "./toolExecutor.js";
 import { sendMilestoneCard, sendNotification, sendJobCompletionAlert, CustomerServiceBot } from "./telegramConnector.js";
@@ -810,6 +811,48 @@ Incorporate any n8n workflow outputs from the tool context into your deliverable
       message: `Submitting milestone ${milestoneIndex + 1} for payment release (alignment score: ${(alignmentScore / 100).toFixed(1)}%)`,
       milestoneIndex,
     });
+
+    // ── Alignment Node attestation (high-value milestones) ──────────────────
+    // V1 settles with a single alignmentNodeVerifier key (honest gap). For
+    // high-value milestones we additionally route through a simulated 0G
+    // Alignment Node quorum — a preview of the decentralized oversight layer
+    // the roadmap commits to (V1.5: 3-of-5). Fail-open by default; set
+    // ALIGNMENT_NODE_ENFORCE=true to block release without quorum.
+    try {
+      const minOgWei = ethers.parseEther(process.env.ALIGNMENT_NODE_MIN_OG || "0.5");
+      if (job.milestones[milestoneIndex].amountWei >= minOgWei) {
+        const attestation = await requestAlignmentAttestation({
+          jobId, milestoneIndex, outputHash, alignmentScore,
+        });
+        await logActivity({
+          jobId: id, agentId, agentWallet,
+          phase: "alignment_attestation",
+          message: attestation.attested
+            ? `Alignment Node quorum reached (${attestation.quorum}) — high-value milestone independently attested`
+            : `Alignment Node quorum NOT reached (${attestation.quorum} < ${attestation.quorumRequired} required)`,
+          milestoneIndex,
+          metadata: {
+            attested:       attestation.attested,
+            quorum:         attestation.quorum,
+            quorumRequired: attestation.quorumRequired,
+            attestationId:  attestation.attestationId,
+            attestors:      attestation.attestors,
+            simulated:      attestation.simulated,
+          },
+        });
+        if (!attestation.attested && process.env.ALIGNMENT_NODE_ENFORCE === "true") {
+          await logActivity({
+            jobId: id, agentId, agentWallet, phase: "error",
+            message: `Release blocked — Alignment Node quorum not reached`, milestoneIndex,
+          });
+          return;
+        }
+      }
+    } catch (attErr) {
+      // Never let the oversight preview break the payment path.
+      console.log(`[PlatformProcessor] Alignment Node attestation skipped: ${attErr.message}`);
+    }
+
     try {
       const tx = await this.escrow.releaseMilestone(
         jobId,
@@ -828,6 +871,25 @@ Incorporate any n8n workflow outputs from the tool context into your deliverable
         message: `Milestone ${milestoneIndex + 1} approved — ${amountOG} OG released`,
         milestoneIndex,
         metadata: { txHash: receipt.hash, amountOG },
+      });
+
+      // ── Verifiable Receipt ────────────────────────────────────────────────
+      // Record this milestone's proof bundle so it surfaces publicly: the
+      // 0G Compute model that produced it, the 0G Storage root hash of the
+      // deliverable, and the mainnet payment tx. Non-blocking.
+      await recordPortfolio({
+        agentId,
+        jobId:           id,
+        category:        jobBrief.category || jobBrief.skillCategory || "task",
+        summary:         jobBrief.title || (result.content ? result.content.slice(0, 120) : `Milestone ${milestoneIndex + 1} delivered`),
+        platforms:       jobBrief?.metadata?.platforms   || [],
+        outputTypes:     jobBrief?.metadata?.outputTypes || ["text"],
+        computeProvider: result.provider,
+        computeModel:    result.model,
+        zgResKey:        outputCID,                              // 0G Storage root hash of the deliverable
+        workflowCid:     jobBrief?.metadata?.n8n?.workflowCid || null,
+        proofBundleCid:  outputCID,                              // stored object bundles content + model + provider + ts
+        txHash:          receipt.hash,                           // mainnet payment tx
       });
 
       // Send Telegram job completion alert
